@@ -9,117 +9,82 @@
 #include <sys/types.h>
 #include <sys/time.h>
 
-#define master_IOCTL_CREATESOCK 0x12345677
-#define master_IOCTL_MMAP 0x12345678
-#define master_IOCTL_EXIT 0x12345679
-
 #define PAGE_SIZE 4096
-#define MAP_SIZE 40960
-size_t GET_filesize(const char *filename); //get the size of the input file
+#define BUF_SIZE 512
+size_t get_filesize(const char* filename);//get the size of the input file
 
-int main(int argc, char *argv[]) //argv[1]: file argv[num_of_file+2]: method
+
+int main (int argc, char* argv[])
 {
-	char buf[512], number_of_file[50];
-	int i, dev_fd, file_fd, num_of_file; // the fd for the device and the fd for the input file
-	size_t file_size, offset = 0, tmp;
-	ssize_t tmpp;
+	char buf[BUF_SIZE];
+	int i, dev_fd, file_fd;// the fd for the device and the fd for the input file
+	size_t ret, file_size, offset = 0, tmp;
+	char file_name[50], method[20];
+	char *kernel_address = NULL, *file_address = NULL;
+	struct timeval start;
+	struct timeval end;
+	double trans_time; //calulate the time between the device is opened and it is closed
 
-	struct timeval begin, finish;
-	double transmissionTime; //calulate the time between the device is opened and it is closed
-	void *mappedMemory, *kernelMemory;
 
-	strcpy(number_of_file, argv[1]); // get the N (but in chars)
+	strcpy(file_name, argv[1]);
+	strcpy(method, argv[2]);
 
-	for (int i = 0; i < strlen(argv[1]); i++) // convert from chars to int
+
+	if( (dev_fd = open("/dev/master_device", O_RDWR)) < 0)
 	{
-		num_of_file *= 10;
-		num_of_file += argv[1][i] - '0';
+		perror("failed to open /dev/master_device\n");
+		return 1;
 	}
-	char file_name[num_of_file + 3][50];
-	for (int i = 0; i < num_of_file; i++)
+	gettimeofday(&start ,NULL);
+	if( (file_fd = open (file_name, O_RDWR)) < 0 )
 	{
-		strcpy(file_name[i], argv[i + 2]); // get the N file names
+		perror("failed to open input file\n");
+		return 1;
 	}
 
-	for (int i = 0; i < num_of_file; i++)
-	{ // process one by one (N times)
+	if( (file_size = get_filesize(file_name)) < 0)
+	{
+		perror("failed to get filesize\n");
+		return 1;
+	}
 
-		if ((dev_fd = open("/dev/master_device", O_RDWR)) < 0)
-		{
-			fprintf(stderr, "failed to open /dev/master_device\n");
-			return 1;
-		}
-		gettimeofday(&begin, NULL);
-		if ((file_fd = open(file_name[i], O_RDWR)) < 0)
-		{
-			fprintf(stderr, "failed to open input file\n");
-			return 1;
-		}
 
-		if ((file_size = GET_filesize(file_name[i])) < 0)
-		{
-			fprintf(stderr, "failed to get filesize\n");
-			return 1;
-		}
+	if(ioctl(dev_fd, 0x12345677) == -1) //0x12345677 : create socket and accept the connection from the slave
+	{
+		perror("ioclt server create socket error\n");
+		return 1;
+	}
 
-		if (ioctl(dev_fd, master_IOCTL_CREATESOCK) == -1) //master_IOCTL_CREATESOCK : create socket and accept the connection from the slave
-		{
-			fprintf(stderr, "ioclt server create socket error\n");
-			return 1;
-		}
 
-		if (argv[num_of_file + 2][0] == 'f')
-		{
+	switch(method[0])
+	{
+		case 'f': //fcntl : read()/write()
 			do
 			{
-				tmpp = read(file_fd, buf, sizeof(buf)); // read from the input file
-				while (errno == EAGAIN && write(dev_fd, buf, tmpp) < 0)
-					; //write to the the device
-			} while (tmpp > 0);
-		}
-		else
-		{
-			int reg = i * MAP_SIZE;
-			kernelMemory = mmap(NULL, MAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, dev_fd, 0);
-			for (i = 0; reg < file_size; i++)
-			{
-
-				tmp = file_size - reg;
-				if (tmp > MAP_SIZE)
-				{
-					tmp = MAP_SIZE;
-				}
-
-				mappedMemory = mmap(NULL, tmp, PROT_READ, MAP_SHARED, file_fd, reg);
-				memcpy(kernelMemory, mappedMemory, tmp);
-				munmap(mappedMemory, tmp);
-				while (errno == EAGAIN && ioctl(dev_fd, master_IOCTL_MMAP, tmp) < 0)
-					;
-			}
-			if (ioctl(dev_fd, 0x111, kernelMemory) == -1)
-			{
-				fprintf(stderr, "ioclt server error\n");
-				return 1;
-			}
-			munmap(kernelMemory, MAP_SIZE);
-		}
-
-		while (errno == EAGAIN && ioctl(dev_fd, master_IOCTL_EXIT) < 0)
-			; // end sending data, close the connection
-		gettimeofday(&finish, NULL);
-		transmissionTime = (finish.tv_sec - begin.tv_sec) * 1000 + (finish.tv_usec - begin.tv_usec) * 0.0001;
-		printf("Master: Transmission time: %lf ms, File size: %ld bytes\n", transmissionTime, file_size);
-		close(dev_fd);
-		close(file_fd);
+				ret = read(file_fd, buf, sizeof(buf)); // read from the input file
+				write(dev_fd, buf, ret);//write to the the device
+			}while(ret > 0);
+			break;
 	}
+
+	if(ioctl(dev_fd, 0x12345679) == -1) // end sending data, close the connection
+	{
+		perror("ioclt server exits error\n");
+		return 1;
+	}
+	gettimeofday(&end, NULL);
+	trans_time = (end.tv_sec - start.tv_sec)*1000 + (end.tv_usec - start.tv_usec)*0.0001;
+	printf("Transmission time: %lf ms, File size: %d bytes\n", trans_time, file_size / 8);
+
+	close(file_fd);
+	close(dev_fd);
+
 	return 0;
 }
 
-size_t GET_filesize(const char *filename)
+size_t get_filesize(const char* filename)
 {
-	struct stat st;
-	stat(filename, &st);
-	return st.st_size;
+    struct stat st;
+    stat(filename, &st);
+    return st.st_size;
 }
-
-//referrence: https://github.com/qazwsxedcrfvtg14/OS-Proj2
