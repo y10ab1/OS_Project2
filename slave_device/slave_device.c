@@ -31,6 +31,7 @@
 
 
 #define BUF_SIZE 512
+#define MAP_SIZE (PAGE_SIZE * 10)
 
 
 
@@ -53,11 +54,16 @@ static void __exit slave_exit(void);
 int slave_close(struct inode *inode, struct file *filp);
 int slave_open(struct inode *inode, struct file *filp);
 static long slave_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_param);
-int receive_msg(struct file *filp, char *buf, size_t count, loff_t *offp );
+ssize_t receive_msg(struct file *filp, char *buf, size_t count, loff_t *offp );
 
 static mm_segment_t old_fs;
 static ksocket_t sockfd_cli;//socket to the master server
 static struct sockaddr_in addr_srv; //address of the master server
+
+//mmap
+static int my_mmap(struct file *filp, struct vm_area_struct *vma);
+void mmap_open(struct vm_area_struct *vma) {}
+void mmap_close(struct vm_area_struct *vma) {}
 
 //file operations
 static struct file_operations slave_fops = {
@@ -65,7 +71,14 @@ static struct file_operations slave_fops = {
 	.unlocked_ioctl = slave_ioctl,
 	.open = slave_open,
 	.read = receive_msg,
-	.release = slave_close
+	.release = slave_close,
+    .mmap = my_mmap,
+};
+
+//mmap operations
+struct vm_operations_struct mmap_vm_ops = {
+    .open = mmap_open,
+    .close = mmap_close
 };
 
 //device info
@@ -98,14 +111,17 @@ static void __exit slave_exit(void)
 	debugfs_remove(file1);
 }
 
-
 int slave_close(struct inode *inode, struct file *filp)
 {
+    MOD_DEC_USE_COUNT;
+    kfree(filp->private_data);
 	return 0;
 }
 
 int slave_open(struct inode *inode, struct file *filp)
 {
+    MOD_INC_USE_COUNT;
+    filp->private_data = kmalloc(MAP_SIZE, GFP_KERNEL);
 	return 0;
 }
 static long slave_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_param)
@@ -120,6 +136,7 @@ static long slave_ioctl(struct file *file, unsigned int ioctl_num, unsigned long
 	unsigned char *px;
 
     pgd_t *pgd;
+    p4d_t *p4d;
 	pud_t *pud;
 	pmd_t *pmd;
     pte_t *ptep, pte;
@@ -129,6 +146,7 @@ static long slave_ioctl(struct file *file, unsigned int ioctl_num, unsigned long
 
 	switch(ioctl_num){
 		case slave_IOCTL_CREATESOCK:// create socket and connect to master
+            printk("slave device ioctl create socket");
 
 			if(copy_from_user(ip, (char*)ioctl_param, sizeof(ip)))
 				return -ENOMEM;
@@ -156,10 +174,11 @@ static long slave_ioctl(struct file *file, unsigned int ioctl_num, unsigned long
 			tmp = inet_ntoa(&addr_srv.sin_addr);
 			printk("connected to : %s %d\n", tmp, ntohs(addr_srv.sin_port));
 			kfree(tmp);
+            printk("kfree(tmp)");
 			ret = 0;
 			break;
 		case slave_IOCTL_MMAP:
-
+            ret = krecv(sockfd_cli, file->private_data, MAP_SIZE, 0);
 			break;
 
 		case slave_IOCTL_EXIT:
@@ -168,12 +187,12 @@ static long slave_ioctl(struct file *file, unsigned int ioctl_num, unsigned long
 				printk("kclose cli error\n");
 				return -1;
 			}
-			set_fs(old_fs);
 			ret = 0;
 			break;
 		default:
             pgd = pgd_offset(current->mm, ioctl_param);
-			pud = pud_offset(pgd, ioctl_param);
+			p4d = p4d_offset(pgd, ioctl_param);
+			pud = pud_offset(p4d, ioctl_param);
 			pmd = pmd_offset(pud, ioctl_param);
 			ptep = pte_offset_kernel(pmd , ioctl_param);
 			pte = *ptep;
@@ -181,22 +200,38 @@ static long slave_ioctl(struct file *file, unsigned int ioctl_num, unsigned long
 			ret = 0;
 			break;
 	}
+    set_fs(old_fs);
+
 
 	return ret;
 }
 
-int receive_msg(struct file *filp, char *buf, size_t count, loff_t *offp )
+ssize_t receive_msg(struct file *filp, char *buf, size_t count, loff_t *offp )
 {
 //call when user is reading from this device
 	char msg[BUF_SIZE];
-	size_t len;
+	ssize_t len;
 	len = krecv(sockfd_cli, msg, sizeof(msg), 0);
 	if(copy_to_user(buf, msg, len))
 		return -ENOMEM;
 	return len;
 }
 
-
+//reference https://linux-kernel-labs.github.io/refs/heads/master/labs/memory_mapping.html
+static int my_mmap(struct file *filp, struct vm_area_struct *vma)
+{
+    vma->vm_pgoff = virt_to_phys((void *)filp->private_data)>>PAGE_SHIFT;
+    int ret;
+    ret = remap_pfn_range(vma, vma->vm_start, vma->vm_pgoff, vma->vm_end-vma->vm_start, vma->vm_page_prot)
+	if (ret < 0){
+        pr_err("could not map the address area\n");
+        return -EIO;
+    }
+	vma->vm_flags |= VM_RESERVED;
+	vma->vm_private_data = filp->private_data;
+	vma->vm_ops = &mmap_vm_ops;
+	return 0;
+}
 
 
 module_init(slave_init);
