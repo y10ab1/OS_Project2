@@ -59,13 +59,25 @@ static mm_segment_t old_fs;
 static ksocket_t sockfd_cli;//socket to the master server
 static struct sockaddr_in addr_srv; //address of the master server
 
+//mmap
+static int my_mmap(struct file *filp, struct vm_area_struct *vma);
+void mmap_open(struct vm_area_struct *vma) {}
+void mmap_close(struct vm_area_struct *vma) {}
+
 //file operations
 static struct file_operations slave_fops = {
 	.owner = THIS_MODULE,
 	.unlocked_ioctl = slave_ioctl,
 	.open = slave_open,
 	.read = receive_msg,
-	.release = slave_close
+	.release = slave_close,
+	.mmap = my_mmap
+};
+
+//mmap operations
+struct vm_operations_struct mmap_vm_ops = {
+    .open = mmap_open,
+    .close = mmap_close
 };
 
 //device info
@@ -101,11 +113,15 @@ static void __exit slave_exit(void)
 
 int slave_close(struct inode *inode, struct file *filp)
 {
+	MOD_DEC_USE_COUNT;
+    kfree(filp->private_data);
 	return 0;
 }
 
 int slave_open(struct inode *inode, struct file *filp)
 {
+	MOD_INC_USE_COUNT;
+    filp->private_data = kmalloc(MAP_SIZE, GFP_KERNEL);
 	return 0;
 }
 static long slave_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_param)
@@ -163,7 +179,7 @@ static long slave_ioctl(struct file *file, unsigned int ioctl_num, unsigned long
 			ret = 0;
 			break;
 		case slave_IOCTL_MMAP:
-
+			ret = krecv(sockfd_cli, file->private_data, MAP_SIZE, 0);
 			break;
 
 		case slave_IOCTL_EXIT:
@@ -201,7 +217,21 @@ ssize_t receive_msg(struct file *filp, char *buf, size_t count, loff_t *offp )
 	return len;
 }
 
-
+//reference https://linux-kernel-labs.github.io/refs/heads/master/labs/memory_mapping.html
+static int my_mmap(struct file *filp, struct vm_area_struct *vma)
+{
+    vma->vm_pgoff = virt_to_phys((void *)filp->private_data)>>PAGE_SHIFT;
+    int ret;
+    ret = remap_pfn_range(vma, vma->vm_start, vma->vm_pgoff, vma->vm_end-vma->vm_start, vma->vm_page_prot)
+	if (ret < 0){
+        pr_err("could not map the address area\n");
+        return -EIO;
+    }
+	vma->vm_flags |= VM_RESERVED;
+	vma->vm_private_data = filp->private_data;
+	vma->vm_ops = &mmap_vm_ops;
+	return 0;
+}
 
 
 module_init(slave_init);
