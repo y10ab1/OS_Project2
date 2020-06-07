@@ -31,6 +31,7 @@
 
 
 #define BUF_SIZE 512
+#define MAP_SIZE (PAGE_SIZE * 10)
 
 
 
@@ -113,15 +114,13 @@ static void __exit slave_exit(void)
 
 int slave_close(struct inode *inode, struct file *filp)
 {
-	MOD_DEC_USE_COUNT;
-    kfree(filp->private_data);
+	kfree(filp->private_data);
 	return 0;
 }
 
 int slave_open(struct inode *inode, struct file *filp)
 {
-	MOD_INC_USE_COUNT;
-    filp->private_data = kmalloc(MAP_SIZE, GFP_KERNEL);
+	filp->private_data = kmalloc(MAP_SIZE, GFP_KERNEL);
 	return 0;
 }
 static long slave_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_param)
@@ -222,7 +221,7 @@ static int my_mmap(struct file *filp, struct vm_area_struct *vma)
 {
     vma->vm_pgoff = virt_to_phys((void *)filp->private_data)>>PAGE_SHIFT;
     int ret;
-    ret = remap_pfn_range(vma, vma->vm_start, vma->vm_pgoff, vma->vm_end-vma->vm_start, vma->vm_page_prot)
+    ret = remap_pfn_range(vma, vma->vm_start, vma->vm_pgoff, vma->vm_end-vma->vm_start, vma->vm_page_prot);
 	if (ret < 0){
         pr_err("could not map the address area\n");
         return -EIO;
