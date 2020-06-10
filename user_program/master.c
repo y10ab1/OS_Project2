@@ -16,7 +16,7 @@ size_t get_filesize(const char *filename); //get the size of the input file
 int main(int argc, char *argv[])
 {
 	char buf[512], number_of_file[50];
-	int i, dev_fd, file_fd, num_of_file; // the fd for the device and the fd for the input file
+	int i, dev_fd, file_fd, num_of_file = 0; // the fd for the device and the fd for the input file
 	size_t ret, file_size, tmp;
 	size_t offset = 0;
 
@@ -83,7 +83,7 @@ int main(int argc, char *argv[])
 		}
 		gettimeofday(&end, NULL);
 		transmissionTime = (end.tv_sec - start.tv_sec) * 1000 + (end.tv_usec - start.tv_usec) * 0.0001;
-		printf("Transmission time: %lf ms, File size: %lu bytes\n", transmissionTime, file_size / 8);
+		printf("Transmission time: %lf ms, File size: %lu bytes\n", transmissionTime, file_size );
 
 		close(file_fd);
 		close(dev_fd);
