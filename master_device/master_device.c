@@ -147,11 +147,13 @@ static void __exit master_exit(void)
 
 int master_close(struct inode *inode, struct file *filp)
 {
+	kfree(filp->private_data);
 	return 0;
 }
 
 int master_open(struct inode *inode, struct file *filp)
 {
+	filp->private_data = kmalloc(MAP_SIZE, GFP_KERNEL);
 	return 0;
 }
 
@@ -223,6 +225,7 @@ static ssize_t send_msg(struct file *file, const char __user *buf, size_t count,
 }
 
 static int my_mmap(struct file* fp, struct vm_area_struct* vma){
+	vma->vm_pgoff = virt_to_phys(fp->private_data)>>PAGE_SHIFT;
 	if(remap_pfn_range(vma, vma->vm_start, vma->vm_pgoff, vma->vm_end-vma->vm_start, vma->vm_page_prot)){
 		return -EIO;
 	}
