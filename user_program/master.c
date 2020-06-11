@@ -81,6 +81,7 @@ int main(int argc, char *argv[])
 			} while (ret > 0);
 			break;
 		default:
+		;
 			int reg = i * MAP_SIZE;
 			kernelMemory = mmap(NULL, MAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, dev_fd, 0);
 			for (i = 0; reg < file_size; i++)
