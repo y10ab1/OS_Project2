@@ -92,6 +92,7 @@ int main (int argc, char* argv[]){
 	strcpy (ip, argv[num_of_file+3]);
 
 	for (int i=0; i<num_of_file; i++){
+		fileSize = 0;
 		int ok=checkerror1();
 		if (ok == 1) return 1;
 
