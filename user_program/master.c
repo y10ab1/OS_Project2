@@ -20,7 +20,7 @@ size_t GET_filesize(const char *filename); //get the size of the input file
 int main(int argc, char *argv[]) //argv[1]: file argv[num_of_file+2]: method
 {
 	char buf[512], number_of_file[50];
-	int i, dev_fd, file_fd, num_of_file=0; // the fd for the device and the fd for the input file
+	int i, dev_fd, file_fd, num_of_file = 0; // the fd for the device and the fd for the input file
 	size_t file_size, offset = 0, tmp;
 	ssize_t tmpp;
 
