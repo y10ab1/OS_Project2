@@ -9,21 +9,24 @@
 #include <sys/types.h>
 #include <sys/time.h>
 
-#define PAGE_SIZE 4096
-#define BUF_SIZE 512
-size_t get_filesize(const char *filename); //get the size of the input file
+#define master_IOCTL_CREATESOCK 0x12345677
+#define master_IOCTL_MMAP 0x12345678
+#define master_IOCTL_EXIT 0x12345679
 
-int main(int argc, char *argv[])
+#define PAGE_SIZE 4096
+#define MAP_SIZE 40960
+size_t GET_filesize(const char *filename); //get the size of the input file
+
+int main(int argc, char *argv[]) //argv[1]: file argv[num_of_file+2]: method
 {
 	char buf[512], number_of_file[50];
 	int i, dev_fd, file_fd, num_of_file = 0; // the fd for the device and the fd for the input file
-	size_t ret, file_size, tmp;
-	size_t offset = 0;
+	size_t file_size, offset = 0, tmp;
+	ssize_t tmpp;
 
-	char *kernel_address = NULL, *file_address = NULL;
-	struct timeval start;
-	struct timeval end;
+	struct timeval begin, finish;
 	double transmissionTime; //calulate the time between the device is opened and it is closed
+	void *mappedMemory, *kernelMemory;
 
 	strcpy(number_of_file, argv[1]); // get the N (but in chars)
 
@@ -39,61 +42,84 @@ int main(int argc, char *argv[])
 	}
 
 	for (int i = 0; i < num_of_file; i++)
-	{
+	{ // process one by one (N times)
 
 		if ((dev_fd = open("/dev/master_device", O_RDWR)) < 0)
 		{
-			perror("failed to open /dev/master_device\n");
+			fprintf(stderr, "failed to open /dev/master_device\n");
 			return 1;
 		}
-		gettimeofday(&start, NULL);
+		gettimeofday(&begin, NULL);
 		if ((file_fd = open(file_name[i], O_RDWR)) < 0)
 		{
-			perror("failed to open input file\n");
+			fprintf(stderr, "failed to open input file\n");
 			return 1;
 		}
 
-		if ((file_size = get_filesize(file_name[i])) < 0)
+		if ((file_size = GET_filesize(file_name[i])) < 0)
 		{
-			perror("failed to get filesize\n");
+			fprintf(stderr, "failed to get filesize\n");
 			return 1;
 		}
 
-		if (ioctl(dev_fd, 0x12345677) == -1) //0x12345677 : create socket and accept the connection from the slave
+		if (ioctl(dev_fd, master_IOCTL_CREATESOCK) == -1) //master_IOCTL_CREATESOCK : create socket and accept the connection from the slave
 		{
-			perror("ioclt server create socket error\n");
+			fprintf(stderr, "ioclt server create socket error\n");
 			return 1;
 		}
 
-		switch (argv[num_of_file + 2][0])
+		if (argv[num_of_file + 2][0] == 'f')
 		{
-		case 'f': //fcntl : read()/write()
 			do
 			{
-				ret = read(file_fd, buf, sizeof(buf)); // read from the input file
-				write(dev_fd, buf, ret);			   //write to the the device
-			} while (ret > 0);
-			break;
+				tmpp = read(file_fd, buf, sizeof(buf)); // read from the input file
+				while (errno == EAGAIN && write(dev_fd, buf, tmpp) < 0)
+					; //write to the the device
+			} while (tmpp > 0);
 		}
-
-		if (ioctl(dev_fd, 0x12345679) == -1) // end sending data, close the connection
+		else
 		{
-			perror("ioclt server exits error\n");
-			return 1;
-		}
-		gettimeofday(&end, NULL);
-		transmissionTime = (end.tv_sec - start.tv_sec) * 1000 + (end.tv_usec - start.tv_usec) * 0.0001;
-		printf("Transmission time: %lf ms, File size: %lu bytes\n", transmissionTime, file_size );
+			int reg = i * MAP_SIZE;
+			kernelMemory = mmap(NULL, MAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, dev_fd, 0);
+			for (i = 0; reg < file_size; i++)
+			{
 
-		close(file_fd);
+				tmp = file_size - reg;
+				if (tmp > MAP_SIZE)
+				{
+					tmp = MAP_SIZE;
+				}
+
+				mappedMemory = mmap(NULL, tmp, PROT_READ, MAP_SHARED, file_fd, reg);
+				memcpy(kernelMemory, mappedMemory, tmp);
+				munmap(mappedMemory, tmp);
+				while (errno == EAGAIN && ioctl(dev_fd, master_IOCTL_MMAP, tmp) < 0)
+					;
+			}
+			if (ioctl(dev_fd, 0x111, kernelMemory) == -1)
+			{
+				fprintf(stderr, "ioclt server error\n");
+				return 1;
+			}
+			munmap(kernelMemory, MAP_SIZE);
+		}
+
+		while (errno == EAGAIN && ioctl(dev_fd, master_IOCTL_EXIT) < 0)
+			; // end sending data, close the connection
+		gettimeofday(&finish, NULL);
+		transmissionTime = (finish.tv_sec - begin.tv_sec) * 1000 + (finish.tv_usec - begin.tv_usec) * 0.0001;
+		printf("Master: Transmission time: %lf ms, File size: %ld bytes\n", transmissionTime, file_size);
 		close(dev_fd);
+		close(file_fd);
 	}
 	return 0;
 }
 
-size_t get_filesize(const char *filename)
+size_t GET_filesize(const char *filename)
 {
 	struct stat st;
 	stat(filename, &st);
 	return st.st_size;
 }
+
+//referrence: https://github.com/qazwsxedcrfvtg14/OS-Proj2
