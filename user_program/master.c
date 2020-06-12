@@ -10,7 +10,7 @@
 #include <sys/time.h>
 
 #define PAGE_SIZE 4096
-#define MAP_SIZE 40960
+#define MAP_SIZE 409600
 #define BUF_SIZE 512
 
 #define master_IOCTL_MMAP 0x12345678
@@ -80,34 +80,24 @@ int main(int argc, char *argv[])
 				write(dev_fd, buf, ret);			   //write to the the device
 			} while (ret > 0);
 			break;
-		default:
-		;
-			int reg = i * MAP_SIZE;
-			kernelMemory = mmap(NULL, MAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, dev_fd, 0);
-			for (i = 0; reg < file_size; i++)
-			{
 
-				tmp = file_size - reg;
-				if (tmp > MAP_SIZE)
+		default:;
+			while (offset < file_size)
+			{
+				size_t length = MAP_SIZE;
+				if ((file_size - offset) < length)
 				{
-					tmp = MAP_SIZE;
+					length = file_size - offset;
 				}
-
-				mappedMemory = mmap(NULL, tmp, PROT_READ, MAP_SHARED, file_fd, reg);
-				memcpy(kernelMemory, mappedMemory, tmp);
-				munmap(mappedMemory, tmp);
-				while (errno == EAGAIN && ioctl(dev_fd, master_IOCTL_MMAP, tmp) < 0)
-					;
+				file_address = mmap(NULL, length, PROT_READ, MAP_SHARED, file_fd, offset);
+				kernel_address = mmap(NULL, length, PROT_WRITE, MAP_SHARED, dev_fd, offset);
+				memcpy(kernel_address, file_address, length);
+				offset += length;
+				ioctl(dev_fd, 0x12345678, length);
 			}
-			if (ioctl(dev_fd, 0x111, kernelMemory) == -1)
-			{
-				fprintf(stderr, "ioclt server error\n");
-				return 1;
-			}
-			munmap(kernelMemory, MAP_SIZE);
 			break;
 		}
-
+		ioctl(dev_fd, 7122);
 		if (ioctl(dev_fd, 0x12345679) == -1) // end sending data, close the connection
 		{
 			perror("ioclt server exits error\n");
