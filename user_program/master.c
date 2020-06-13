@@ -13,7 +13,9 @@
 #define MAP_SIZE 409600
 #define BUF_SIZE 512
 
+#define master_IOCTL_CREATESOCK 0x12345677
 #define master_IOCTL_MMAP 0x12345678
+#define master_IOCTL_EXIT 0x12345679
 
 size_t get_filesize(const char *filename); //get the size of the input file
 
@@ -22,7 +24,6 @@ int main(int argc, char *argv[])
 	char buf[512], number_of_file[50];
 	int i, dev_fd, file_fd, num_of_file = 0; // the fd for the device and the fd for the input file
 	size_t ret, file_size, tmp;
-	size_t offset = 0;
 
 	void *mappedMemory, *kernelMemory;
 
@@ -46,6 +47,7 @@ int main(int argc, char *argv[])
 
 	for (int i = 0; i < num_of_file; i++)
 	{
+		size_t offset = 0;
 
 		if ((dev_fd = open("/dev/master_device", O_RDWR)) < 0)
 		{
@@ -67,7 +69,7 @@ int main(int argc, char *argv[])
 
 		if (ioctl(dev_fd, 0x12345677) == -1) //0x12345677 : create socket and accept the connection from the slave
 		{
-			perror("ioclt server create socket error\n");
+			perror("ioctl server create socket error\n");
 			return 1;
 		}
 
@@ -81,28 +83,35 @@ int main(int argc, char *argv[])
 			} while (ret > 0);
 			break;
 
-		default:;
-			while (offset < file_size)
+		case 'm':
+			kernelMemory = mmap(NULL, MAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, dev_fd, 0);
+			for (i = 0; i * MAP_SIZE < file_size; i++)
 			{
-				size_t length = MAP_SIZE;
-				if ((file_size - offset) < length)
-				{
-					length = file_size - offset;
-				}
-				file_address = mmap(NULL, length, PROT_READ, MAP_SHARED, file_fd, offset);
-				kernel_address = mmap(NULL, length, PROT_WRITE, MAP_SHARED, dev_fd, offset);
-				memcpy(kernel_address, file_address, length);
-				offset += length;
-				ioctl(dev_fd, 0x12345678, length);
+				tmp = file_size - i * MAP_SIZE;
+				if (tmp > MAP_SIZE)
+					tmp = MAP_SIZE;
+				mappedMemory = mmap(NULL, tmp, PROT_READ, MAP_SHARED, file_fd, i * MAP_SIZE);
+				memcpy(kernelMemory, mappedMemory, tmp);
+				munmap(mappedMemory, tmp);
+				while (ioctl(dev_fd, master_IOCTL_MMAP, tmp) < 0 && errno == EAGAIN)
+					;
 			}
+			if (ioctl(dev_fd, 0x111, kernelMemory) == -1)
+			{
+				perror("ioclt server error\n");
+				return 1;
+			}
+			munmap(kernelMemory, MAP_SIZE);
 			break;
 		}
-		ioctl(dev_fd, 7122);
+		/*
 		if (ioctl(dev_fd, 0x12345679) == -1) // end sending data, close the connection
 		{
 			perror("ioclt server exits error\n");
 			return 1;
-		}
+		}*/
+		while (ioctl(dev_fd, master_IOCTL_EXIT) < 0 && errno == EAGAIN)
+			; // end sending data, close the connection
 		gettimeofday(&end, NULL);
 		transmissionTime = (end.tv_sec - start.tv_sec) * 1000 + (end.tv_usec - start.tv_usec) * 0.0001;
 		printf("Transmission time: %lf ms, File size: %lu bytes\n", transmissionTime, file_size);
