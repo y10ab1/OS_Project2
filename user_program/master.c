@@ -19,6 +19,24 @@
 
 size_t get_filesize(const char *filename); //get the size of the input file
 
+int openmaster_device(int dev_fd)
+{
+	if ((dev_fd = open("/dev/master_device", O_RDWR)) < 0)
+	{
+		perror("failed to open /dev/master_device\n");
+		return 1;
+	}
+}
+
+int checkioctl(int dev_fd)
+{
+	if (ioctl(dev_fd, 0x12345677) == -1) //0x12345677 : create socket and accept the connection from the slave
+	{
+		perror("ioctl server create socket error\n");
+		return 1;
+	}
+}
+
 int main(int argc, char *argv[])
 {
 	char buf[512], number_of_file[50];
@@ -49,11 +67,7 @@ int main(int argc, char *argv[])
 	{
 		size_t offset = 0;
 
-		if ((dev_fd = open("/dev/master_device", O_RDWR)) < 0)
-		{
-			perror("failed to open /dev/master_device\n");
-			return 1;
-		}
+		openmaster_device(dev_fd);
 
 		if ((file_fd = open(file_name[i], O_RDWR)) < 0)
 		{
@@ -67,12 +81,8 @@ int main(int argc, char *argv[])
 			return 1;
 		}
 
-		if (ioctl(dev_fd, 0x12345677) == -1) //0x12345677 : create socket and accept the connection from the slave
-		{
-			perror("ioctl server create socket error\n");
-			return 1;
-		}
-		
+		checkioctl(dev_fd);
+
 		gettimeofday(&start, NULL);
 
 		switch (argv[num_of_file + 2][0])
@@ -106,12 +116,7 @@ int main(int argc, char *argv[])
 			munmap(kernelMemory, MAP_SIZE);
 			break;
 		}
-		/*
-		if (ioctl(dev_fd, 0x12345679) == -1) // end sending data, close the connection
-		{
-			perror("ioclt server exits error\n");
-			return 1;
-		}*/
+
 		while (ioctl(dev_fd, master_IOCTL_EXIT) < 0 && errno == EAGAIN)
 			; // end sending data, close the connection
 		gettimeofday(&end, NULL);
