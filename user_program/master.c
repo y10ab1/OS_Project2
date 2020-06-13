@@ -54,7 +54,7 @@ int main(int argc, char *argv[])
 			perror("failed to open /dev/master_device\n");
 			return 1;
 		}
-		gettimeofday(&start, NULL);
+
 		if ((file_fd = open(file_name[i], O_RDWR)) < 0)
 		{
 			perror("failed to open input file\n");
@@ -72,6 +72,8 @@ int main(int argc, char *argv[])
 			perror("ioctl server create socket error\n");
 			return 1;
 		}
+		
+		gettimeofday(&start, NULL);
 
 		switch (argv[num_of_file + 2][0])
 		{
