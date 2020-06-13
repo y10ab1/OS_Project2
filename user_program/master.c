@@ -10,7 +10,7 @@
 #include <sys/time.h>
 
 #define PAGE_SIZE 4096
-#define MAP_SIZE 409600
+#define MAP_SIZE 40960
 #define BUF_SIZE 512
 
 #define master_IOCTL_CREATESOCK 0x12345677
@@ -85,12 +85,12 @@ int main(int argc, char *argv[])
 
 		case 'm':
 			kernelMemory = mmap(NULL, MAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, dev_fd, 0);
-			for (i = 0; i * MAP_SIZE < file_size; i++)
+			for (int j = 0; j * MAP_SIZE < file_size; j++)
 			{
-				tmp = file_size - i * MAP_SIZE;
+				tmp = file_size - j * MAP_SIZE;
 				if (tmp > MAP_SIZE)
 					tmp = MAP_SIZE;
-				mappedMemory = mmap(NULL, tmp, PROT_READ, MAP_SHARED, file_fd, i * MAP_SIZE);
+				mappedMemory = mmap(NULL, tmp, PROT_READ, MAP_SHARED, file_fd, j * MAP_SIZE);
 				memcpy(kernelMemory, mappedMemory, tmp);
 				munmap(mappedMemory, tmp);
 				while (ioctl(dev_fd, master_IOCTL_MMAP, tmp) < 0 && errno == EAGAIN)
