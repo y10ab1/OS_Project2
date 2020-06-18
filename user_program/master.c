@@ -19,18 +19,18 @@
 
 size_t get_filesize(const char *filename); //get the size of the input file
 
-int openmaster_device(int dev_fd)
+int openmaster_device(int* dev_fd)
 {
-	if ((dev_fd = open("/dev/master_device", O_RDWR)) < 0)
+	if ((*dev_fd = open("/dev/master_device", O_RDWR)) < 0)
 	{
 		perror("failed to open /dev/master_device\n");
 		return 1;
 	}
 }
 
-int checkioctl(int dev_fd)
+int checkioctl(int* dev_fd)
 {
-	if (ioctl(dev_fd, 0x12345677) == -1) //0x12345677 : create socket and accept the connection from the slave
+	if (ioctl(*dev_fd, 0x12345677) == -1) //0x12345677 : create socket and accept the connection from the slave
 	{
 		perror("ioctl server create socket error\n");
 		return 1;
@@ -67,7 +67,7 @@ int main(int argc, char *argv[])
 	{
 		size_t offset = 0;
 
-		openmaster_device(dev_fd);
+		openmaster_device(&dev_fd);
 
 		if ((file_fd = open(file_name[i], O_RDWR)) < 0)
 		{
@@ -81,7 +81,7 @@ int main(int argc, char *argv[])
 			return 1;
 		}
 
-		checkioctl(dev_fd);
+		checkioctl(&dev_fd);
 
 		gettimeofday(&start, NULL);
 
