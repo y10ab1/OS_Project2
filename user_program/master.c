@@ -19,7 +19,7 @@
 
 size_t get_filesize(const char *filename); //get the size of the input file
 
-int openmaster_device(int* dev_fd)
+int openmaster_device(int *dev_fd)
 {
 	if ((*dev_fd = open("/dev/master_device", O_RDWR)) < 0)
 	{
@@ -28,7 +28,7 @@ int openmaster_device(int* dev_fd)
 	}
 }
 
-int checkioctl(int* dev_fd)
+int checkioctl(int *dev_fd)
 {
 	if (ioctl(*dev_fd, 0x12345677) == -1) //0x12345677 : create socket and accept the connection from the slave
 	{
@@ -42,13 +42,16 @@ int main(int argc, char *argv[])
 	char buf[512], number_of_file[50];
 	int i, dev_fd, file_fd, num_of_file = 0; // the fd for the device and the fd for the input file
 	size_t ret, file_size, tmp;
+	size_t total_file_size = 0;
 
 	void *mappedMemory, *kernelMemory;
 
 	char *kernel_address = NULL, *file_address = NULL;
 	struct timeval start;
 	struct timeval end;
+
 	double transmissionTime; //calulate the time between the device is opened and it is closed
+	double total_transmissionTime = 0;
 
 	strcpy(number_of_file, argv[1]); // get the N (but in chars)
 
@@ -121,11 +124,14 @@ int main(int argc, char *argv[])
 			; // end sending data, close the connection
 		gettimeofday(&end, NULL);
 		transmissionTime = (end.tv_sec - start.tv_sec) * 1000 + (end.tv_usec - start.tv_usec) * 0.0001;
-		printf("Transmission time: %lf ms, File size: %lu bytes\n", transmissionTime, file_size);
+		//printf("Transmission time: %lf ms, File size: %lu bytes\n", transmissionTime, file_size);
+		total_transmissionTime += transmissionTime;
+		total_file_size += file_size;
 
 		close(file_fd);
 		close(dev_fd);
 	}
+	printf("Transmission time: %lf ms, File size: %lu bytes\n", total_transmissionTime, total_file_size);
 	return 0;
 }
 
